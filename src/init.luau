@@ -1,5 +1,7 @@
 --!optimize 2
---!strict
+--!nocheck
+--!nolint
+--macro!LPH_JIT_MAX
 
 -- Compiled with L+ C Edition
 -- Janitor
@@ -9,19 +11,15 @@
 -- LinkToInstance fixed by Elttob.
 -- Cleanup edge cases fixed by codesenseAye.
 
-local Promise = require(script.Promise)
-type Promise<T...> = Promise.TypedPromise<T...>
-
 local LinkToInstanceIndex = setmetatable({}, {
 	__tostring = function()
 		return "LinkToInstanceIndex"
-	end;
+	end,
 })
 
 local INVALID_METHOD_NAME =
 	"Object is a %* and as such expected `true?` for the method name and instead got %*. Traceback: %*"
 local METHOD_NOT_FOUND_ERROR = "Object %* doesn't have method %*, are you sure you want to add it? Traceback: %*"
-local NOT_A_PROMISE = "Invalid argument #1 to 'Janitor:AddPromise' (Promise expected, got %* (%*)) Traceback: %*"
 
 export type Janitor = typeof(setmetatable(
 	{} :: {
@@ -31,12 +29,11 @@ export type Janitor = typeof(setmetatable(
 		Add: <T>(self: Janitor, object: T, methodName: BooleanOrString?, index: any?) -> T,
 		AddObject: <T, A...>(
 			self: Janitor,
-			constructor: {new: (A...) -> T},
+			constructor: { new: (A...) -> T },
 			methodName: BooleanOrString?,
 			index: any?,
 			A...
 		) -> T,
-		AddPromise: <T...>(self: Janitor, promiseObject: Promise<T...>) -> Promise<T...>,
 
 		Remove: (self: Janitor, index: any) -> Janitor,
 		RemoveNoClean: (self: Janitor, index: any) -> Janitor,
@@ -45,7 +42,7 @@ export type Janitor = typeof(setmetatable(
 		RemoveListNoClean: (self: Janitor, ...any) -> Janitor,
 
 		Get: (self: Janitor, index: any) -> any?,
-		GetAll: (self: Janitor) -> {[any]: any},
+		GetAll: (self: Janitor) -> { [any]: any },
 
 		Cleanup: (self: Janitor) -> (),
 		Destroy: (self: Janitor) -> (),
@@ -53,7 +50,7 @@ export type Janitor = typeof(setmetatable(
 		LinkToInstance: (self: Janitor, Object: Instance, allowMultiple: boolean?) -> RBXScriptConnection,
 		LinkToInstances: (self: Janitor, ...Instance) -> Janitor,
 	},
-	{} :: {__call: (self: Janitor) -> ()}
+	{} :: { __call: (self: Janitor) -> () }
 ))
 type Private = typeof(setmetatable(
 	{} :: {
@@ -66,12 +63,11 @@ type Private = typeof(setmetatable(
 		Add: <T>(self: Private, object: T, methodName: BooleanOrString?, index: any?) -> T,
 		AddObject: <T, A...>(
 			self: Private,
-			constructor: {new: (A...) -> T},
+			constructor: { new: (A...) -> T },
 			methodName: BooleanOrString?,
 			index: any?,
 			A...
 		) -> T,
-		AddPromise: <T...>(self: Private, promiseObject: Promise<T...>) -> Promise<T...>,
 
 		Remove: (self: Private, index: any) -> Private,
 		RemoveNoClean: (self: Private, index: any) -> Private,
@@ -80,7 +76,7 @@ type Private = typeof(setmetatable(
 		RemoveListNoClean: (self: Private, ...any) -> Private,
 
 		Get: (self: Private, index: any) -> any?,
-		GetAll: (self: Private) -> {[any]: any},
+		GetAll: (self: Private) -> { [any]: any },
 
 		Cleanup: (self: Private) -> (),
 		Destroy: (self: Private) -> (),
@@ -88,7 +84,7 @@ type Private = typeof(setmetatable(
 		LinkToInstance: (self: Private, object: Instance, allowMultiple: boolean?) -> RBXScriptConnection,
 		LinkToInstances: (self: Private, ...Instance) -> Private,
 	},
-	{} :: {__call: (self: Private) -> ()}
+	{} :: { __call: (self: Private) -> () }
 ))
 type Static = {
 	ClassName: "Janitor",
@@ -118,7 +114,7 @@ Janitor.CurrentlyCleaning = true
 Janitor.SuppressInstanceReDestroy = false;
 (Janitor :: any).__index = Janitor
 
-local Janitors = setmetatable({} :: {[Private]: {[any]: any}}, {__mode = "k"})
+local Janitors = setmetatable({} :: { [Private]: { [any]: any } }, { __mode = "k" })
 
 --[=[
 	Whether or not the Janitor is currently cleaning up.
@@ -138,9 +134,9 @@ local Janitors = setmetatable({} :: {[Private]: {[any]: any}}, {__mode = "k"})
 ]=]
 
 local TYPE_DEFAULTS = {
-	["function"] = true;
-	thread = true;
-	RBXScriptConnection = "Disconnect";
+	["function"] = true,
+	thread = true,
+	RBXScriptConnection = "Disconnect",
 }
 
 --[=[
@@ -149,7 +145,7 @@ local TYPE_DEFAULTS = {
 ]=]
 function Janitor.new(): Janitor
 	return setmetatable({
-		CurrentlyCleaning = false;
+		CurrentlyCleaning = false,
 	}, Janitor) :: never
 end
 
@@ -380,69 +376,8 @@ Private.Add = Add
 	@param ... A... -- The arguments that will be passed to the constructor.
 	@return T -- The object that was passed as the first argument.
 ]=]
-function Janitor:AddObject<T, A...>(constructor: {new: (A...) -> T}, methodName: BooleanOrString?, index: any?, ...: A...): T
+function Janitor:AddObject<T, A...>(constructor: { new: (A...) -> T }, methodName: BooleanOrString?, index: any?, ...: A...): T
 	return Add(self, constructor.new(...), methodName, index)
-end
-
---[=[
-	Adds a [Promise](https://github.com/evaera/roblox-lua-promise) to the
-	Janitor. If the Janitor is cleaned up and the Promise is not completed, the
-	Promise will be cancelled.
-
-	### Luau:
-
-	```lua
-	local obliterator = Janitor.new()
-	obliterator:AddPromise(Promise.delay(3)):andThenCall(print, "Finished!"):catch(warn)
-	task.wait(1)
-	obliterator:Cleanup()
-	```
-
-	### TypeScript:
-
-	```ts
-	import { Janitor } from "@rbxts/janitor";
-
-	const obliterator = new Janitor();
-	obliterator.AddPromise(Promise.delay(3)).andThenCall(print, "Finished!").catch(warn);
-	task.wait(1);
-	obliterator.Cleanup();
-	```
-
-	@error NotAPromiseError -- Thrown if the promise is not a Promise.
-
-	@param promiseObject Promise -- The promise you want to add to the Janitor.
-	@return Promise
-]=]
-function Janitor:AddPromise<T...>(promiseObject: Promise<T...>): Promise<T...>
-	if not Promise then
-		return promiseObject
-	end
-
-	if not Promise.is(promiseObject) then
-		error(string.format(NOT_A_PROMISE, typeof(promiseObject), tostring(promiseObject), debug.traceback(nil, 2)))
-	end
-
-	if promiseObject:getStatus() == Promise.Status.Started then
-		local uniqueId = newproxy(false)
-		local newPromise = Add(self, Promise.new(function(resolve, _, onCancel)
-			if onCancel(function()
-				promiseObject:cancel()
-			end) then
-				return
-			end
-
-			resolve(promiseObject)
-		end), "cancel", uniqueId)
-
-		newPromise:finally(function()
-			Remove(self, uniqueId)
-		end)
-
-		return newPromise :: never
-	end
-
-	return promiseObject
 end
 
 --[=[
@@ -750,7 +685,7 @@ end
 	@since v1.15.1
 	@return {[any]: any}
 ]=]
-function Janitor:GetAll(): {[any]: any}
+function Janitor:GetAll(): { [any]: any }
 	local this = Janitors[self]
 	return if this then table.freeze(table.clone(this)) else {}
 end
@@ -860,9 +795,14 @@ Private.__call = Cleanup
 local function LinkToInstance(self: Private, object: Instance, allowMultiple: boolean?): RBXScriptConnection
 	local indexToUse = if allowMultiple then newproxy(false) else LinkToInstanceIndex
 
-	return Add(self, object.Destroying:Connect(function()
-		Cleanup(self)
-	end), "Disconnect", indexToUse)
+	return Add(
+		self,
+		object.Destroying:Connect(function()
+			Cleanup(self)
+		end),
+		"Disconnect",
+		indexToUse
+	)
 end
 
 --[=[
